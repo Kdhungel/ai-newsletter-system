@@ -130,9 +130,8 @@ def track_link_click(newsletter_id: str, article_index: int, db: Session = Depen
         db.commit()
         print(f"📊 Link clicked: {newsletter_id}, Article: {article_index}")
     
-    # For now, redirect to example.com
-    # In production, you'd store the actual URL in the article data
-    return RedirectResponse(url="https://example.com")
+    # Redirect to Google search for news articles
+    return RedirectResponse(url="https://www.google.com/search?q=news+articles")
 
 
 @app.get("/analytics/{newsletter_id}")
