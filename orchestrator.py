@@ -7,6 +7,8 @@ from ai_summarizer import ArticleSummarizer
 from email_sender import EmailSender
 from sqlalchemy.orm import Session
 import time
+from datetime import datetime
+import uuid  # For generating newsletter IDs
 
 
 class NewsletterOrchestrator:
@@ -73,25 +75,47 @@ class NewsletterOrchestrator:
             selected_articles = all_articles[:5]
             print(f"   ✨ Selected {len(selected_articles)} articles for newsletter")
             
-            # 5. Generate email content
+            # 5. Generate newsletter_id FIRST
+            newsletter_id = str(uuid.uuid4())[:8]
+            
+            # 6. Generate email content WITH newsletter_id
             html_content = self.email_sender.create_newsletter_html(
                 selected_articles, 
-                interests
+                interests,
+                newsletter_id=newsletter_id
             )
             
             plain_text = f"Your daily newsletter with {len(selected_articles)} articles about {', '.join(interests[:2])}."
             
-            # 6. Send email
+            # 7. Send email WITH newsletter_id
             subject = f"Your {interests[0].title()} News Digest"
             print(f"   📧 Sending email with subject: {subject}")
             
-            # In development, we'll just log instead of actually sending
-            # Uncomment next line when you have email credentials
-            # success = self.email_sender.send_newsletter(user.email, subject, html_content, plain_text)
+            # Send email with pre-generated newsletter_id
+            success, sent_newsletter_id = self.email_sender.send_newsletter(
+                to_email=user.email,
+                subject=subject,
+                html_content=html_content,
+                plain_text=plain_text,
+                newsletter_id=newsletter_id
+            )
             
-            # For now, just log
-            print(f"   📬 [DEV MODE] Would send to {user.email}")
+            print(f"   📬 Sent to {user.email}, Newsletter ID: {newsletter_id}")
             print(f"   📊 Articles: {[a['title'][:30] + '...' for a in selected_articles]}")
+            
+            # 8. Create tracking record in database
+            try:
+                tracking_record = database.EmailTracking(
+                    user_email=user.email,
+                    newsletter_id=newsletter_id,
+                    sent_at=datetime.utcnow()
+                )
+                db.add(tracking_record)
+                db.commit()
+                print(f"   📊 Tracking record created: {newsletter_id}")
+            except Exception as e:
+                print(f"   ⚠️  Failed to create tracking record: {e}")
+                db.rollback()
             
             # Small delay to avoid rate limits
             time.sleep(0.5)

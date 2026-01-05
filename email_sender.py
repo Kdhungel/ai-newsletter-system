@@ -6,6 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+import uuid
 
 load_dotenv()
 
@@ -28,22 +29,31 @@ class EmailSender:
             self.smtp_password = os.getenv("SMTP_PASSWORD", "")
             self.from_email = self.smtp_username
     
-    def send_newsletter(self, to_email, subject, html_content, plain_text=""):
+    def send_newsletter(self, to_email, subject, html_content, plain_text="", newsletter_id=None):
         """
         Send newsletter email to a subscriber
-        Returns True if successful, False otherwise
+        Returns (success, newsletter_id) tuple
         """
+        # Generate ID if not provided
+        if not newsletter_id:
+            newsletter_id = str(uuid.uuid4())[:8]  # First 8 chars of UUID
+        
         if self.use_resend:
-            return self._send_via_resend(to_email, subject, html_content)
+            success = self._send_via_resend(to_email, subject, html_content, newsletter_id)
         else:
-            return self._send_via_smtp(to_email, subject, html_content, plain_text)
+            success = self._send_via_smtp(to_email, subject, html_content, plain_text, newsletter_id)
+        
+        return success, newsletter_id
     
-      
-    def _send_via_smtp(self, to_email, subject, html_content, plain_text=""):
+    def _send_via_smtp(self, to_email, subject, html_content, plain_text="", newsletter_id=""):
         """Send email using SMTP (for development)"""
+        # Debug: Show what credentials we have
+        print(f"   🔍 SMTP Check: username='{self.smtp_username}', password present={bool(self.smtp_password)}")
+        
         # Check if we have SMTP credentials
         if not self.smtp_username or not self.smtp_password:
             print(f"📧 [DEV MODE] Would send to {to_email}: {subject[:50]}...")
+            print(f"   Newsletter ID: {newsletter_id}")
             print(f"   Set SMTP_USERNAME and SMTP_PASSWORD in .env to actually send")
             return True  # Return True in dev mode
         
@@ -72,17 +82,28 @@ class EmailSender:
             print(f"❌ Failed to send email to {to_email}: {e}")
             return False
     
-    def _send_via_resend(self, to_email, subject, html_content):
+    def _send_via_resend(self, to_email, subject, html_content, newsletter_id=""):
         """Send email using Resend API (production)"""
         # We'll implement this later
         print(f"📧 [Resend] Would send to {to_email}: {subject[:50]}...")
+        print(f"   Newsletter ID: {newsletter_id}")
         return True
     
-    def create_newsletter_html(self, articles, user_interests):
+    def create_newsletter_html(self, articles, user_interests, newsletter_id=""):
         """
-        Generate HTML email content from articles
+        Generate HTML email content from articles with tracking
         """
         interests_str = ", ".join(user_interests)
+        
+        # Build tracking URLs if newsletter_id provided
+        tracking_pixel = ""
+        if newsletter_id:
+            tracking_pixel = f"""
+            <!-- Tracking pixel for opens -->
+            <img src="http://localhost:8000/track/open/{newsletter_id}" 
+                 width="1" height="1" style="display:none; border:0;" alt="">
+            """
+        
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -99,6 +120,7 @@ class EmailSender:
             </style>
         </head>
         <body>
+            {tracking_pixel}
             <div class="container">
                 <div class="header">
                     <h1>📰 Your Personalized Newsletter</h1>
@@ -107,11 +129,17 @@ class EmailSender:
         """
         
         for i, article in enumerate(articles, 1):
+            # Create tracking URL for clicks
+            if newsletter_id:
+                click_url = f"http://localhost:8000/track/click/{newsletter_id}/{i}"
+            else:
+                click_url = article.get('url', 'https://example.com')
+            
             html += f"""
                 <div class="article">
                     <div class="title">#{i}: {article['title']}</div>
                     <div class="summary">{article['summary']}</div>
-                    <a href="{article['url']}" class="read-more">Read full article →</a>
+                    <a href="{click_url}" class="read-more" target="_blank">Read full article →</a>
                 </div>
             """
         
@@ -147,8 +175,15 @@ if __name__ == "__main__":
         }
     ]
     
-    # Generate HTML
-    html_content = sender.create_newsletter_html(test_articles, ["tech", "business"])
+    # Generate test newsletter_id
+    test_newsletter_id = str(uuid.uuid4())[:8]
+    
+    # Generate HTML with tracking
+    html_content = sender.create_newsletter_html(
+        test_articles, 
+        ["tech", "business"],
+        newsletter_id=test_newsletter_id
+    )
     
     # Print first 500 chars of HTML to check
     print("Generated HTML (first 500 chars):")
@@ -156,13 +191,13 @@ if __name__ == "__main__":
     print("...")
     
     # Try to send (will likely fail without SMTP credentials, but that's OK)
-    success = sender.send_newsletter(
+    success, newsletter_id = sender.send_newsletter(
         to_email="test@example.com",
         subject="Your Daily Tech Briefing",
         html_content=html_content,
         plain_text="Your newsletter is ready. View in browser for full experience."
     )
     
-    print(f"\nSend attempted. Success: {success}")
+    print(f"\nSend attempted. Success: {success}, Newsletter ID: {newsletter_id}")
     print("\nNote: To actually send emails, add SMTP credentials to .env file")
     print("Or get Resend API key from resend.com and set USE_RESEND = True")
